@@ -1,3 +1,4 @@
+import { createS3FileStore } from '../../../blobStorage/s3FileStore.js';
 import { BucketS3Config } from '../s3Client.js';
 import { MOCK_SITE_LUID, MOCK_USER_LUID } from '../toolContext.mock.js';
 import {
@@ -25,6 +26,7 @@ const config: BucketS3Config = {
   keyPrefix: '/mcp/',
   presignTtlSeconds: 300,
 };
+const store = createS3FileStore(config);
 const tenant = { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID };
 const tenantPrefix = `${MOCK_SITE_LUID}/${MOCK_USER_LUID}`;
 const uploadId = '123e4567-e89b-42d3-a456-426614174000';
@@ -50,7 +52,7 @@ describe('requestStagedDatasourceUpload', () => {
       const result = await requestStagedDatasourceUpload({
         fileName,
         fileSizeBytes: 482133,
-        config,
+        store,
         tenant,
       });
 
@@ -80,7 +82,7 @@ describe('requestStagedDatasourceUpload', () => {
     'rejects unsupported filename %j before presigning',
     async (fileName) => {
       await expect(
-        requestStagedDatasourceUpload({ fileName, fileSizeBytes: 482133, config, tenant }),
+        requestStagedDatasourceUpload({ fileName, fileSizeBytes: 482133, store, tenant }),
       ).rejects.toThrow('Data source upload filename must end in .tds or .tdsx.');
       expect(mocks.createPresignedPutUrlToS3).not.toHaveBeenCalled();
     },
@@ -94,7 +96,7 @@ describe('requestStagedDatasourceUpload', () => {
       requestStagedDatasourceUpload({
         fileName: 'Sales.tds',
         fileSizeBytes: 482133,
-        config,
+        store,
         tenant,
       }),
     ).rejects.toBe(error);
@@ -121,7 +123,7 @@ describe('resolveStagedDatasourceUpload', () => {
 
   it('returns TDS bytes and applies the default download limit without looking up TDSX', async () => {
     await expect(
-      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, config, tenant }),
+      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, store, tenant }),
     ).resolves.toEqual({
       fileName: `${uploadId}.tds`,
       bytes: Buffer.from('<datasource />'),
@@ -142,7 +144,7 @@ describe('resolveStagedDatasourceUpload', () => {
     await expect(
       resolveStagedDatasourceUpload({
         datasourceUploadId: uploadId,
-        config,
+        store,
         tenant,
         maxBytes: 4096,
       }),
@@ -166,7 +168,7 @@ describe('resolveStagedDatasourceUpload', () => {
   it('passes a caller-supplied byte limit to the S3 download', async () => {
     await resolveStagedDatasourceUpload({
       datasourceUploadId: uploadId,
-      config,
+      store,
       tenant,
       maxBytes: 200 * 1024 * 1024,
     });
@@ -180,7 +182,7 @@ describe('resolveStagedDatasourceUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockResolvedValue(undefined);
 
     await expect(
-      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, config, tenant }),
+      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, store, tenant }),
     ).rejects.toThrow(
       'Data source upload not found: it was never uploaded, has expired, or was deleted after prior publish. Check whether the data source already exists before requesting a new upload.',
     );
@@ -191,7 +193,7 @@ describe('resolveStagedDatasourceUpload', () => {
     'rejects invalid upload id %j before S3 lookup',
     async (datasourceUploadId) => {
       await expect(
-        resolveStagedDatasourceUpload({ datasourceUploadId, config, tenant }),
+        resolveStagedDatasourceUpload({ datasourceUploadId, store, tenant }),
       ).rejects.toThrow('Data source upload id is invalid.');
       expect(mocks.downloadObjectFromS3IfExists).not.toHaveBeenCalled();
     },
@@ -201,7 +203,7 @@ describe('resolveStagedDatasourceUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockResolvedValue(Buffer.alloc(0));
 
     await expect(
-      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, config, tenant }),
+      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, store, tenant }),
     ).rejects.toThrow('Data source upload bytes must not be empty.');
     expect(mocks.downloadObjectFromS3IfExists).toHaveBeenCalledTimes(1);
   });
@@ -212,7 +214,7 @@ describe('resolveStagedDatasourceUpload', () => {
       .mockResolvedValueOnce(Buffer.alloc(0));
 
     await expect(
-      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, config, tenant }),
+      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, store, tenant }),
     ).rejects.toThrow('Data source upload bytes must not be empty.');
   });
 
@@ -221,7 +223,7 @@ describe('resolveStagedDatasourceUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockRejectedValue(error);
 
     await expect(
-      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, config, tenant }),
+      resolveStagedDatasourceUpload({ datasourceUploadId: uploadId, store, tenant }),
     ).rejects.toBe(error);
     expect(mocks.downloadObjectFromS3IfExists).toHaveBeenCalledTimes(1);
   });
@@ -244,7 +246,7 @@ describe('cross-tenant isolation', () => {
     await expect(
       resolveStagedDatasourceUpload({
         datasourceUploadId: uploadId,
-        config,
+        store,
         tenant: otherTenant,
       }),
     ).rejects.toThrow('Data source upload not found');

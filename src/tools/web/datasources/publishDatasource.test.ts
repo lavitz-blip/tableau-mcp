@@ -217,7 +217,7 @@ describe('publishDatasourceTool', () => {
 
     expect(mocks.mockResolveStagedDatasourceUpload).toHaveBeenCalledWith({
       datasourceUploadId: validArgs.datasourceUploadId,
-      config: expect.objectContaining({ bucket: 'tableau-workbooks' }),
+      store: expect.objectContaining({ keyPrefix: 'mcp/', linkTtlSeconds: 300 }),
       tenant: { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID },
     });
     expect(mocks.mockUploadFileInChunks).toHaveBeenCalledWith({
@@ -345,7 +345,7 @@ describe('publishDatasourceTool', () => {
     expect(result.isError).toBe(true);
     invariant(result.content[0].type === 'text');
     expect(result.content[0].text).toContain(
-      'datasourceFilePath is only supported when staged S3 uploads are not configured',
+      'datasourceFilePath is only supported when no file store is configured',
     );
     expect(mocks.mockReadFile).not.toHaveBeenCalled();
     expect(mocks.mockResolveStagedDatasourceUpload).not.toHaveBeenCalled();
@@ -361,7 +361,7 @@ describe('publishDatasourceTool', () => {
     expect(result.isError).toBe(true);
     invariant(result.content[0].type === 'text');
     expect(result.content[0].text).toContain(
-      'datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with request-datasource-upload and pass datasourceUploadId; that requires the server to set MCP_S3_BUCKET.',
+      'datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with request-datasource-upload and pass datasourceUploadId; that requires the server to set MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR.',
     );
     expect(useRestApi).not.toHaveBeenCalled();
     expect(mocks.mockReadFile).not.toHaveBeenCalled();

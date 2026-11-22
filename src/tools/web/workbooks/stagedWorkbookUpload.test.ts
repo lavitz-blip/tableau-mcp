@@ -1,3 +1,4 @@
+import { createS3FileStore } from '../../../blobStorage/s3FileStore.js';
 import { BucketS3Config } from '../s3Client.js';
 import { MOCK_SITE_LUID, MOCK_USER_LUID } from '../toolContext.mock.js';
 import {
@@ -25,6 +26,7 @@ const config: BucketS3Config = {
   keyPrefix: 'mcp/',
   presignTtlSeconds: 300,
 };
+const store = createS3FileStore(config);
 
 const uploadId = '123e4567-e89b-42d3-a456-426614174000';
 const tenant = { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID };
@@ -46,7 +48,7 @@ describe('requestStagedWorkbookUpload', () => {
     const result = await requestStagedWorkbookUpload({
       fileName: 'BoltBikes Workbook.twb',
       fileSizeBytes: 482133,
-      config,
+      store,
       tenant,
     });
 
@@ -73,7 +75,7 @@ describe('requestStagedWorkbookUpload', () => {
     const result = await requestStagedWorkbookUpload({
       fileName: 'BoltBikes Workbook.twbx',
       fileSizeBytes: 482133,
-      config,
+      store,
       tenant,
     });
 
@@ -95,7 +97,7 @@ describe('requestStagedWorkbookUpload', () => {
       requestStagedWorkbookUpload({
         fileName: 'workbook.xml',
         fileSizeBytes: 482133,
-        config,
+        store,
         tenant,
       }),
     ).rejects.toThrow('Workbook upload filename must end in .twb or .twbx.');
@@ -106,7 +108,7 @@ describe('requestStagedWorkbookUpload', () => {
       requestStagedWorkbookUpload({
         fileName: 'workbook.twb',
         fileSizeBytes: 482133,
-        config,
+        store,
         tenant: { siteLuid: '../other-site', userLuid: MOCK_USER_LUID },
       }),
     ).rejects.toThrow('Invalid tenant LUIDs for blob storage key.');
@@ -122,7 +124,7 @@ describe('resolveStagedWorkbookUpload', () => {
 
   it('downloads the staged workbook bytes from the .twb key when it exists', async () => {
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, config, tenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, store, tenant }),
     ).resolves.toEqual({
       fileName: `${uploadId}.twb`,
       bytes: Buffer.from('<workbook />'),
@@ -142,7 +144,7 @@ describe('resolveStagedWorkbookUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockResolvedValueOnce(Buffer.from('PK\x03\x04'));
 
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, config, tenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, store, tenant }),
     ).resolves.toEqual({
       fileName: `${uploadId}.twbx`,
       bytes: Buffer.from('PK\x03\x04'),
@@ -166,7 +168,7 @@ describe('resolveStagedWorkbookUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockResolvedValue(undefined);
 
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, config, tenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, store, tenant }),
     ).rejects.toThrow(
       'Workbook upload not found: it was never uploaded, has expired, or was deleted after prior publish. Check whether the workbook already exists before requesting a new upload.',
     );
@@ -182,7 +184,7 @@ describe('resolveStagedWorkbookUpload', () => {
     );
 
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, config, tenant: otherTenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, store, tenant: otherTenant }),
     ).rejects.toThrow('Workbook upload not found');
     for (const [{ key }] of mocks.downloadObjectFromS3IfExists.mock.calls) {
       expect(key).toContain(`${otherTenant.siteLuid}/${otherTenant.userLuid}/`);
@@ -193,7 +195,7 @@ describe('resolveStagedWorkbookUpload', () => {
     await expect(
       resolveStagedWorkbookUpload({
         workbookUploadId: uploadId,
-        config,
+        store,
         tenant: { siteLuid: MOCK_SITE_LUID, userLuid: '' },
       }),
     ).rejects.toThrow('Invalid tenant LUIDs for blob storage key.');
@@ -202,7 +204,7 @@ describe('resolveStagedWorkbookUpload', () => {
 
   it('rejects invalid workbook upload ids', async () => {
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: '../not-safe', config, tenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: '../not-safe', store, tenant }),
     ).rejects.toThrow('Workbook upload id is invalid.');
   });
 
@@ -210,7 +212,7 @@ describe('resolveStagedWorkbookUpload', () => {
     mocks.downloadObjectFromS3IfExists.mockResolvedValue(Buffer.alloc(0));
 
     await expect(
-      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, config, tenant }),
+      resolveStagedWorkbookUpload({ workbookUploadId: uploadId, store, tenant }),
     ).rejects.toThrow('Workbook upload bytes must not be empty.');
   });
 });

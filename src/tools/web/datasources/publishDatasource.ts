@@ -4,6 +4,7 @@ import { basename } from 'path';
 import { Ok, Result } from 'ts-results-es';
 import { z } from 'zod';
 
+import { FileStore, getFileStore } from '../../../blobStorage/fileStore.js';
 import { getTenantLuids, type TenantIdentitySource } from '../../../blobStorage/tenantKey.js';
 import { ArgsValidationError, McpToolError, UnknownError } from '../../../errors/mcpToolError.js';
 import { isAuthoringAllowedForClient } from '../../../features/authoringAccess.js';
@@ -15,7 +16,6 @@ import { SiteRole } from '../../../sdks/tableau/types/user.js';
 import { WebMcpServer } from '../../../server.web.js';
 import { type TransportName } from '../../../transports.js';
 import { Provider } from '../../../utils/provider.js';
-import { type BucketS3Config } from '../s3Client.js';
 import { deleteStagedUpload } from '../stagedUpload.js';
 import { WebTool } from '../tool.js';
 import { assertProjectAllowedByBoundedContext } from '../utils/boundedContextUtils.js';
@@ -96,7 +96,7 @@ export const getPublishDatasourceTool = (server: WebMcpServer): WebTool<typeof p
           assertProjectAllowedByBoundedContext(projectId, configWithOverrides.boundedContext);
 
           const input = validateDatasourceInput({
-            config: extra.config.bucketS3,
+            store: getFileStore(extra.config),
             transport: extra.config.transport,
             datasourceUploadId,
             datasourceFilePath,
@@ -107,11 +107,7 @@ export const getPublishDatasourceTool = (server: WebMcpServer): WebTool<typeof p
             jwtScopes: tool.requiredApiScopes,
             callback: async (restApi) => {
               const tenantSource: TenantIdentitySource = extra;
-              const resolvedDatasourceInput = await loadDatasourceFile(
-                input,
-                extra.config.bucketS3,
-                tenantSource,
-              );
+              const resolvedDatasourceInput = await loadDatasourceFile(input, tenantSource);
               if (resolvedDatasourceInput.isErr()) {
                 return resolvedDatasourceInput;
               }
@@ -140,7 +136,7 @@ export const getPublishDatasourceTool = (server: WebMcpServer): WebTool<typeof p
 
               await deleteStagedUpload(
                 resolvedDatasourceFile.stagedKey,
-                extra.config.bucketS3,
+                getFileStore(extra.config),
                 'publish-datasource',
               );
 
@@ -169,15 +165,15 @@ export const getPublishDatasourceTool = (server: WebMcpServer): WebTool<typeof p
 
 type DatasourceInput =
   | { source: 'filePath'; datasourceFilePath: string }
-  | { source: 'staged'; datasourceUploadId: string };
+  | { source: 'staged'; datasourceUploadId: string; store: FileStore };
 
 function validateDatasourceInput({
-  config,
+  store,
   transport,
   datasourceUploadId,
   datasourceFilePath,
 }: {
-  config: BucketS3Config & { enabled: boolean };
+  store: FileStore | undefined;
   transport: TransportName;
   datasourceUploadId?: string;
   datasourceFilePath?: string;
@@ -191,12 +187,12 @@ function validateDatasourceInput({
   if (datasourceFilePath) {
     if (transport !== 'stdio') {
       throw new ArgsValidationError(
-        'datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with request-datasource-upload and pass datasourceUploadId; that requires the server to set MCP_S3_BUCKET.',
+        'datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with request-datasource-upload and pass datasourceUploadId; that requires the server to set MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR.',
       );
     }
-    if (config.enabled) {
+    if (store) {
       throw new ArgsValidationError(
-        'datasourceFilePath is only supported when staged S3 uploads are not configured. Call request-datasource-upload first and pass datasourceUploadId.',
+        'datasourceFilePath is only supported when no file store is configured. Call request-datasource-upload first and pass datasourceUploadId.',
       );
     }
     return { source: 'filePath', datasourceFilePath };
@@ -207,17 +203,16 @@ function validateDatasourceInput({
       'Either datasourceFilePath or datasourceUploadId must be provided. For local stdio MCP servers, pass datasourceFilePath. For hosted clients, call request-datasource-upload first and pass datasourceUploadId.',
     );
   }
-  if (!config.enabled) {
+  if (!store) {
     throw new UnknownError(
-      'MCP_S3_BUCKET must be configured before publishing staged data source uploads.',
+      'A file store must be configured (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) before publishing staged data source uploads.',
     );
   }
-  return { source: 'staged', datasourceUploadId };
+  return { source: 'staged', datasourceUploadId, store };
 }
 
 async function loadDatasourceFile(
   input: DatasourceInput,
-  config: BucketS3Config,
   tenantSource: TenantIdentitySource,
 ): Promise<Result<ResolvedDatasource, McpToolError>> {
   if (input.source === 'filePath') {
@@ -230,7 +225,7 @@ async function loadDatasourceFile(
   return new Ok(
     await resolveStagedDatasourceUpload({
       datasourceUploadId: input.datasourceUploadId,
-      config,
+      store: input.store,
       tenant: tenant.value,
     }),
   );

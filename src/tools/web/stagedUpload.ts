@@ -1,16 +1,11 @@
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 
+import { FileStore } from '../../blobStorage/fileStore.js';
 import { type TenantLuids } from '../../blobStorage/tenantKey.js';
 import { log } from '../../logging/logger.js';
 import { getExceptionMessage } from '../../utils/getExceptionMessage.js';
-import {
-  BucketS3Config,
-  buildTenantS3Key,
-  createPresignedPutUrlToS3,
-  deleteObjectFromS3,
-  downloadObjectFromS3IfExists,
-} from './s3Client.js';
+import { buildTenantS3Key } from './s3Client.js';
 
 // Intentionally decimal GB (not GiB) to leave headroom under S3's 5GB single-PUT ceiling.
 export const MAX_STAGED_UPLOAD_BYTES = 5 * 1000 * 1000 * 1000;
@@ -28,7 +23,7 @@ export type StagedUploadKind<FileType extends string> = {
 export type ResolvedStagedFile = {
   fileName: string;
   bytes: Buffer;
-  // Set only when read from S3; the key to delete once published.
+  // Set only when read from a file store; the key to delete once published.
   stagedKey?: string;
 };
 
@@ -36,13 +31,13 @@ export async function requestStagedUpload<FileType extends string>({
   kind,
   fileName,
   fileSizeBytes,
-  config,
+  store,
   tenant,
 }: {
   kind: StagedUploadKind<FileType>;
   fileName: string;
   fileSizeBytes: number;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
 }): Promise<{
   uploadId: string;
@@ -60,19 +55,16 @@ export async function requestStagedUpload<FileType extends string>({
   const uploadId = randomUUID();
   const contentType =
     fileType === kind.xmlFileType ? 'application/xml' : 'application/octet-stream';
-  const uploadUrl = await createPresignedPutUrlToS3({
-    key: buildStagedUploadS3Key(kind, config.keyPrefix, tenant, uploadId, fileType),
+  const uploadUrl = await store.createUploadLink({
+    key: buildStagedUploadS3Key(kind, store.keyPrefix, tenant, uploadId, fileType),
     contentType,
     contentLength: fileSizeBytes,
-    bucket: config.bucket,
-    region: config.region,
-    presignTtlSeconds: config.presignTtlSeconds,
   });
 
   return {
     uploadId,
     uploadUrl,
-    expiresAt: new Date(Date.now() + config.presignTtlSeconds * 1000).toISOString(),
+    expiresAt: new Date(Date.now() + store.linkTtlSeconds * 1000).toISOString(),
     maxSizeBytes: MAX_STAGED_UPLOAD_BYTES,
     requiredHeaders: { 'Content-Type': contentType, 'Content-Length': String(fileSizeBytes) },
   };
@@ -81,13 +73,13 @@ export async function requestStagedUpload<FileType extends string>({
 export async function resolveStagedUpload<FileType extends string>({
   kind,
   uploadId,
-  config,
+  store,
   tenant,
   maxBytes = MAX_STAGED_UPLOAD_BYTES,
 }: {
   kind: StagedUploadKind<FileType>;
   uploadId: string;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
   maxBytes?: number;
 }): Promise<ResolvedStagedFile> {
@@ -95,13 +87,8 @@ export async function resolveStagedUpload<FileType extends string>({
 
   // The key is rebuilt from the caller's own tenant, so an id staged by another tenant misses.
   for (const fileType of kind.fileTypes) {
-    const key = buildStagedUploadS3Key(kind, config.keyPrefix, tenant, uploadId, fileType);
-    const bytes = await downloadObjectFromS3IfExists({
-      key,
-      bucket: config.bucket,
-      region: config.region,
-      maxBytes,
-    });
+    const key = buildStagedUploadS3Key(kind, store.keyPrefix, tenant, uploadId, fileType);
+    const bytes = await store.readIfExists({ key, maxBytes });
 
     if (bytes === undefined) {
       continue;
@@ -119,21 +106,17 @@ export async function resolveStagedUpload<FileType extends string>({
   );
 }
 
-/** Best-effort deletion of a published staged upload; never throws. No-op for local files. */
+/** Best-effort deletion of a published staged upload; never throws. No-op without a store or key. */
 export async function deleteStagedUpload(
   stagedKey: string | undefined,
-  config: BucketS3Config,
+  store: FileStore | undefined,
   logger: string,
 ): Promise<void> {
-  if (stagedKey === undefined) {
+  if (stagedKey === undefined || store === undefined) {
     return;
   }
   try {
-    await deleteObjectFromS3({
-      key: stagedKey,
-      bucket: config.bucket,
-      region: config.region,
-    });
+    await store.remove(stagedKey);
   } catch (error) {
     log({
       message: `${logger}: failed to delete staged upload (best-effort)`,

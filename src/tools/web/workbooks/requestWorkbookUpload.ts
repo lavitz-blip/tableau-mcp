@@ -2,6 +2,7 @@ import { CallToolResult } from '@modelcontextprotocol/server';
 import { Ok, Result } from 'ts-results-es';
 import { z } from 'zod';
 
+import { getFileStore } from '../../../blobStorage/fileStore.js';
 import { getTenantLuids } from '../../../blobStorage/tenantKey.js';
 import { McpToolError, UnknownError } from '../../../errors/mcpToolError.js';
 import { isAuthoringAllowedForClient } from '../../../features/authoringAccess.js';
@@ -61,13 +62,12 @@ export const getRequestWorkbookUploadTool = (
             );
           }
 
-          if (!extra.config.bucketS3.enabled) {
+          const store = getFileStore(extra.config);
+          if (!store) {
             throw new UnknownError(
-              'MCP_S3_BUCKET must be configured before requesting staged workbook uploads.',
+              'A file store must be configured (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) before requesting staged workbook uploads.',
             );
           }
-
-          const config = extra.config.bucketS3;
 
           // Non-OAuth modes (PAT/UAT/direct-trust) have no LUIDs until REST sign-in, which populates
           // them for getTenantLuids. Publish signs in as the same configured user, so the staged key
@@ -81,7 +81,7 @@ export const getRequestWorkbookUploadTool = (
               await requestStagedWorkbookUpload({
                 fileName,
                 fileSizeBytes,
-                config,
+                store,
                 tenant: tenant.value,
               }),
             );
@@ -99,7 +99,7 @@ export const getRequestWorkbookUploadTool = (
                 await requestStagedWorkbookUpload({
                   fileName,
                   fileSizeBytes,
-                  config,
+                  store,
                   tenant: tenant.value,
                 }),
               );

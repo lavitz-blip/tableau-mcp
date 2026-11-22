@@ -4,6 +4,7 @@ import { basename } from 'path';
 import { Ok, Result } from 'ts-results-es';
 import { z } from 'zod';
 
+import { FileStore, getFileStore } from '../../../blobStorage/fileStore.js';
 import { getTenantLuids, type TenantIdentitySource } from '../../../blobStorage/tenantKey.js';
 import { ArgsValidationError, McpToolError, UnknownError } from '../../../errors/mcpToolError.js';
 import { isAuthoringAllowedForClient } from '../../../features/authoringAccess.js';
@@ -21,7 +22,6 @@ import { WebMcpServer } from '../../../server.web.js';
 import { PUBLISH_WORKBOOK_PERMISSIONS_API_SCOPE } from '../../../server/oauth/scopes.js';
 import { getExceptionMessage } from '../../../utils/getExceptionMessage.js';
 import { Provider } from '../../../utils/provider.js';
-import { type BucketS3Config } from '../s3Client.js';
 import { deleteStagedUpload } from '../stagedUpload.js';
 import { WebTool } from '../tool.js';
 import { assertProjectAllowedByBoundedContext } from '../utils/boundedContextUtils.js';
@@ -202,7 +202,7 @@ export const getPublishWorkbookTool = (
 
               const tenant: TenantIdentitySource = extra;
               const resolvedWorkbookInput = await resolveWorkbookInput({
-                config: extra.config.bucketS3,
+                store: getFileStore(extra.config),
                 workbookUploadId,
                 workbookFilePath,
                 tenant,
@@ -259,7 +259,7 @@ export const getPublishWorkbookTool = (
 
               await deleteStagedUpload(
                 resolvedWorkbookFile.stagedKey,
-                extra.config.bucketS3,
+                getFileStore(extra.config),
                 'publish-workbook',
               );
 
@@ -409,12 +409,12 @@ async function uploadTwbx({
 }
 
 async function resolveWorkbookInput({
-  config,
+  store,
   workbookUploadId,
   workbookFilePath,
   tenant,
 }: {
-  config: BucketS3Config & { enabled: boolean };
+  store: FileStore | undefined;
   workbookUploadId?: string;
   workbookFilePath?: string;
   tenant: TenantIdentitySource;
@@ -424,9 +424,9 @@ async function resolveWorkbookInput({
   }
 
   if (workbookFilePath) {
-    if (config.enabled) {
+    if (store) {
       throw new ArgsValidationError(
-        'workbookFilePath is only supported when staged S3 uploads are not configured. Call request-workbook-upload first and pass workbookUploadId.',
+        'workbookFilePath is only supported when no file store is configured. Call request-workbook-upload first and pass workbookUploadId.',
       );
     }
     return new Ok(await resolveLocalWorkbookFile(workbookFilePath));
@@ -437,9 +437,9 @@ async function resolveWorkbookInput({
       'Either workbookFilePath or workbookUploadId must be provided. For local MCP servers, pass workbookFilePath. For hosted clients, call request-workbook-upload first and pass workbookUploadId.',
     );
   }
-  if (!config.enabled) {
+  if (!store) {
     throw new UnknownError(
-      'MCP_S3_BUCKET must be configured before publishing staged workbook uploads.',
+      'A file store must be configured (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) before publishing staged workbook uploads.',
     );
   }
   const tenantLuids = getTenantLuids(tenant);
@@ -447,7 +447,7 @@ async function resolveWorkbookInput({
     return tenantLuids;
   }
   return new Ok(
-    await resolveStagedWorkbookUpload({ workbookUploadId, config, tenant: tenantLuids.value }),
+    await resolveStagedWorkbookUpload({ workbookUploadId, store, tenant: tenantLuids.value }),
   );
 }
 

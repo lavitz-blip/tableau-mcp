@@ -1,5 +1,5 @@
+import { FileStore } from '../../../blobStorage/fileStore.js';
 import type { TenantLuids } from '../../../blobStorage/tenantKey.js';
-import { BucketS3Config } from '../s3Client.js';
 import {
   buildStagedUploadS3Key,
   getStagedFileType,
@@ -37,19 +37,19 @@ export type RequestWorkbookUploadResult = {
 export async function requestStagedWorkbookUpload({
   fileName,
   fileSizeBytes,
-  config,
+  store,
   tenant,
 }: {
   fileName: string;
   fileSizeBytes: number;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
 }): Promise<RequestWorkbookUploadResult> {
   const { uploadId, ...rest } = await requestStagedUpload({
     kind: workbookKind,
     fileName,
     fileSizeBytes,
-    config,
+    store,
     tenant,
   });
   return { workbookUploadId: uploadId, ...rest };
@@ -57,19 +57,19 @@ export async function requestStagedWorkbookUpload({
 
 export async function resolveStagedWorkbookUpload({
   workbookUploadId,
-  config,
+  store,
   tenant,
   maxBytes,
 }: {
   workbookUploadId: string;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
   maxBytes?: number;
 }): Promise<ResolvedWorkbook> {
   return await resolveStagedUpload({
     kind: workbookKind,
     uploadId: workbookUploadId,
-    config,
+    store,
     tenant,
     maxBytes,
   });

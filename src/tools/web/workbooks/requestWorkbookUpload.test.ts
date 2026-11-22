@@ -147,11 +147,7 @@ describe('requestWorkbookUploadTool', () => {
     expect(mocks.mockRequestStagedWorkbookUpload).toHaveBeenCalledWith({
       fileName: 'BoltBikes Workbook.twb',
       fileSizeBytes: FILE_SIZE_BYTES,
-      config: expect.objectContaining({
-        enabled: true,
-        bucket: 'tableau-workbooks',
-        region: 'us-east-1',
-      }),
+      store: expect.objectContaining({ keyPrefix: 'mcp/', linkTtlSeconds: 300 }),
       tenant: { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID },
     });
     expect(mocks.mockUseRestApi).not.toHaveBeenCalled();
@@ -259,7 +255,7 @@ describe('requestWorkbookUploadTool', () => {
     expect(mocks.mockRequestStagedWorkbookUpload).toHaveBeenCalledWith({
       fileName: 'BoltBikes Workbook.twbx',
       fileSizeBytes: FILE_SIZE_BYTES,
-      config: expect.objectContaining({ enabled: true }),
+      store: expect.objectContaining({ keyPrefix: 'mcp/', linkTtlSeconds: 300 }),
       tenant: { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID },
     });
   });
@@ -283,7 +279,9 @@ describe('requestWorkbookUploadTool', () => {
 
     expect(result.isError).toBe(true);
     invariant(result.content[0].type === 'text');
-    expect(result.content[0].text).toContain('MCP_S3_BUCKET must be configured');
+    expect(result.content[0].text).toContain(
+      'A file store must be configured (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR)',
+    );
     expect(mocks.mockRequestStagedWorkbookUpload).not.toHaveBeenCalled();
     expect(mocks.mockUseRestApi).not.toHaveBeenCalled();
   });

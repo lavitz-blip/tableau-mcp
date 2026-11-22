@@ -1,5 +1,5 @@
+import { FileStore } from '../../../blobStorage/fileStore.js';
 import type { TenantLuids } from '../../../blobStorage/tenantKey.js';
-import { BucketS3Config } from '../s3Client.js';
 import {
   buildStagedUploadS3Key,
   getStagedFileType,
@@ -37,19 +37,19 @@ export type RequestDatasourceUploadResult = {
 export async function requestStagedDatasourceUpload({
   fileName,
   fileSizeBytes,
-  config,
+  store,
   tenant,
 }: {
   fileName: string;
   fileSizeBytes: number;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
 }): Promise<RequestDatasourceUploadResult> {
   const { uploadId, ...rest } = await requestStagedUpload({
     kind: datasourceKind,
     fileName,
     fileSizeBytes,
-    config,
+    store,
     tenant,
   });
   return { datasourceUploadId: uploadId, ...rest };
@@ -57,19 +57,19 @@ export async function requestStagedDatasourceUpload({
 
 export async function resolveStagedDatasourceUpload({
   datasourceUploadId,
-  config,
+  store,
   tenant,
   maxBytes,
 }: {
   datasourceUploadId: string;
-  config: BucketS3Config;
+  store: FileStore;
   tenant: TenantLuids;
   maxBytes?: number;
 }): Promise<ResolvedDatasource> {
   return await resolveStagedUpload({
     kind: datasourceKind,
     uploadId: datasourceUploadId,
-    config,
+    store,
     tenant,
     maxBytes,
   });

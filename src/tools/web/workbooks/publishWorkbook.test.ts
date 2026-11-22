@@ -337,7 +337,7 @@ describe('publishWorkbookTool', () => {
     });
     expect(mocks.mockResolveStagedWorkbookUpload).toHaveBeenCalledWith({
       workbookUploadId: validArgs.workbookUploadId,
-      config: expect.objectContaining({ bucket: 'tableau-workbooks' }),
+      store: expect.objectContaining({ keyPrefix: 'mcp/', linkTtlSeconds: 300 }),
       tenant: { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID },
     });
     expect(mocks.mockPublishWorkbook).toHaveBeenCalledWith({
@@ -588,7 +588,7 @@ describe('publishWorkbookTool', () => {
 
     expect(mocks.mockResolveStagedWorkbookUpload).toHaveBeenCalledWith({
       workbookUploadId,
-      config: expect.objectContaining({ bucket: 'tableau-workbooks' }),
+      store: expect.objectContaining({ keyPrefix: 'mcp/', linkTtlSeconds: 300 }),
       tenant: { siteLuid: MOCK_SITE_LUID, userLuid: MOCK_USER_LUID },
     });
     expect(mocks.mockValidateWorkbookAndUpload).toHaveBeenCalledWith({
@@ -638,7 +638,7 @@ describe('publishWorkbookTool', () => {
     expect(result.isError).toBe(true);
     invariant(result.content[0].type === 'text');
     expect(result.content[0].text).toContain(
-      'workbookFilePath is only supported when staged S3 uploads are not configured',
+      'workbookFilePath is only supported when no file store is configured',
     );
     expect(mocks.mockReadFile).not.toHaveBeenCalled();
     expect(mocks.mockResolveStagedWorkbookUpload).not.toHaveBeenCalled();
