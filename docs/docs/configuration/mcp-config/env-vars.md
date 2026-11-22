@@ -966,15 +966,69 @@ MCP_IMAGE_PREFIX=tableau/
 The lifetime of the presigned GET URL that is returned to the client. The value is in seconds. The link
 should be fetched promptly rather than stored.
 
-- Default: `30` (30 seconds).
+- Default: `60` (60 seconds).
 - Clamped to the range `5`–`900` (5 seconds–15 minutes).
-- Only relevant when [`MCP_S3_BUCKET`](#mcp_s3_bucket) is set.
+- Relevant when [`MCP_S3_BUCKET`](#mcp_s3_bucket) or
+  [`MCP_LOCAL_FILE_STORE_DIR`](#mcp_local_file_store_dir) is set. With the local file store, it is
+  also the lifetime of the `/files/` upload and download links. An upload only has to start within
+  it; a long upload that started in time is not cut off.
 
 **Example:**
 
 ```bash
-FILE_TTL=30
+FILE_TTL=60
 ```
+
+<hr />
+
+## `MCP_LOCAL_FILE_STORE_DIR`
+
+Keeps staged files on this MCP server's own disk instead of in Amazon S3, and serves their links
+itself. Use it for a self-hosted MCP without an S3 bucket. The staged workbook and data source
+uploads (`request-workbook-upload`, `request-datasource-upload`), the `scaffold-data-app` template
+and the `download-workbook` file are stored under this folder. The tools return links on
+[`MCP_LOCAL_FILE_STORE_PUBLIC_URL`](#mcp_local_file_store_public_url)`/files/...` with the same
+result fields as with S3, so clients need no change.
+
+- Default: unset (local file store disabled).
+- Must be an absolute path.
+- Requires [`MCP_LOCAL_FILE_STORE_PUBLIC_URL`](#mcp_local_file_store_public_url); the two are set
+  together.
+- Can't be combined with [`MCP_S3_BUCKET`](#mcp_s3_bucket); the server fails to start if both are
+  set.
+- HTTP transport only ([`TRANSPORT`](#transport) must be `http`).
+- Links are signed, single-file, single-method and expire after [`FILE_TTL`](#file_ttl) seconds.
+  Restarting the server voids links that are still outstanding.
+- Published uploads are deleted right away. Every file is deleted at most 24 hours after it was
+  written, by a sweep at startup and every hour.
+- Each upload is capped at 5,000,000,000 bytes, as with S3.
+- `workbookFilePath` and `datasourceFilePath` are rejected while a file store is configured, as with
+  S3.
+
+**Example:**
+
+```bash
+MCP_LOCAL_FILE_STORE_DIR=C:	ableau-mcp-files
+```
+
+<hr />
+
+## `MCP_LOCAL_FILE_STORE_PUBLIC_URL`
+
+This MCP server's base URL as the clients that download and upload files reach it. The local file
+store's links are built as `<MCP_LOCAL_FILE_STORE_PUBLIC_URL>/files/<token>`. The agent's own
+environment fetches these links, so it must be able to reach this URL.
+
+- Default: unset.
+- Required when [`MCP_LOCAL_FILE_STORE_DIR`](#mcp_local_file_store_dir) is set.
+- Must start with `http://` or `https://`. A trailing slash is removed.
+
+**Example:**
+
+```bash
+MCP_LOCAL_FILE_STORE_PUBLIC_URL=https://mcp.example.com:3927
+```
+
 <hr />
 
 ## Desktop

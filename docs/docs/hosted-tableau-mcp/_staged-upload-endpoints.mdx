@@ -57,3 +57,21 @@ apply. Presigned URLs point at your bucket instead, so allow your bucket's host:
 Use the bucket name from `MCP_S3_BUCKET` and the region from `AWS_DEFAULT_REGION`. If you're not
 sure of the exact host, call `request-workbook-upload` once and read the host from the returned
 `uploadUrl`. To cover several buckets in one region, allow `*.s3.<region>.amazonaws.com`.
+
+### Self-hosted without S3
+
+If you run your own Tableau MCP server with
+[`MCP_LOCAL_FILE_STORE_DIR`](/configuration/mcp-config/env-vars.md#mcp_local_file_store_dir), the
+server keeps these files on its own disk and the links point at
+`<MCP_LOCAL_FILE_STORE_PUBLIC_URL>/files/...` instead of S3. The agent's environment must reach the
+MCP server's URL. An agent running on a machine inside your network (for example a CLI or desktop
+agent on a corporate laptop) can; a cloud-hosted sandbox usually can't reach an internal host.
+
+The `/files/` links answer:
+
+| Status | Meaning |
+| --- | --- |
+| `403` | The link is invalid, expired, used with the wrong method, or the server restarted since it was issued. On an upload, also when `Content-Length` or `Content-Type` differs from the signed values. Request a new link. |
+| `409` | The upload link was already used. Request a new upload. |
+| `400` | The upload body ended at a different length than `Content-Length`. Nothing was stored; retry with a new upload. |
+| `404` | The downloaded file no longer exists. Files are kept at most 24 hours. |
