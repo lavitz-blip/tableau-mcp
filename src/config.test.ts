@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 import { Config } from './config.js';
 import * as logger from './logging/logger.js';
 import { stubDefaultEnvVars } from './testShared.js';
@@ -1340,6 +1342,70 @@ describe('Config', () => {
 
       const config = new Config();
       expect(config.activityLog.provider).toBe('noop');
+    });
+  });
+
+  describe('localFileStore', () => {
+    beforeEach(() => {
+      vi.stubEnv('TRANSPORT', 'http');
+      vi.stubEnv('DANGEROUSLY_DISABLE_OAUTH', 'true');
+    });
+
+    const dir = resolve('/tmp/mcp-files');
+
+    it('is disabled when MCP_LOCAL_FILE_STORE_DIR is unset', () => {
+      expect(new Config().localFileStore.enabled).toBe(false);
+    });
+
+    it('enables with an absolute dir and a public URL, trimming the trailing slash', () => {
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', dir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com:3928/');
+      vi.stubEnv('FILE_TTL', '120');
+      expect(new Config().localFileStore).toEqual({
+        enabled: true,
+        dir,
+        publicUrl: 'https://mcp.example.com:3928',
+        presignTtlSeconds: 120,
+      });
+    });
+
+    it('throws when the public URL is missing', () => {
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', dir);
+      expect(() => new Config()).toThrow(
+        'MCP_LOCAL_FILE_STORE_PUBLIC_URL must be set when MCP_LOCAL_FILE_STORE_DIR is set',
+      );
+    });
+
+    it('throws when the public URL is not http(s)', () => {
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', dir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'ftp://x');
+      expect(() => new Config()).toThrow(
+        'MCP_LOCAL_FILE_STORE_PUBLIC_URL must start with "http://" or "https://"',
+      );
+    });
+
+    it('throws when the dir is relative', () => {
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', 'files');
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com');
+      expect(() => new Config()).toThrow('MCP_LOCAL_FILE_STORE_DIR must be an absolute path');
+    });
+
+    it('throws when MCP_S3_BUCKET is also set', () => {
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', dir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com');
+      vi.stubEnv('MCP_S3_BUCKET', 'bucket');
+      expect(() => new Config()).toThrow(
+        'Set either MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR, not both',
+      );
+    });
+
+    it('throws when TRANSPORT is not http', () => {
+      vi.stubEnv('TRANSPORT', 'stdio');
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', dir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com');
+      expect(() => new Config()).toThrow(
+        'MCP_LOCAL_FILE_STORE_DIR requires TRANSPORT to be "http"',
+      );
     });
   });
 });

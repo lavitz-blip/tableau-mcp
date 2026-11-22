@@ -1,5 +1,6 @@
 import { CorsOptions } from 'cors';
 import { existsSync, readFileSync } from 'fs';
+import { isAbsolute } from 'path';
 
 import {
   ActivityLogConfig,
@@ -20,7 +21,7 @@ import {
   SessionStoreConfig,
 } from './sessionStore/types.js';
 import { isTelemetryProvider, providerConfigSchema, TelemetryConfig } from './telemetry/types.js';
-import { isTransport } from './transports.js';
+import { isTransport, TransportName } from './transports.js';
 import invariant from './utils/invariant.js';
 import { milliseconds } from './utils/milliseconds.js';
 import { parseNumber } from './utils/parseNumber.js';
@@ -115,6 +116,7 @@ export class Config extends BaseConfig {
     keyPrefix: string;
     presignTtlSeconds: number;
   };
+  localFileStore: LocalFileStoreConfig;
 
   constructor() {
     super();
@@ -195,6 +197,8 @@ export class Config extends BaseConfig {
       AWS_DEFAULT_REGION: awsDefaultRegion,
       MCP_IMAGE_PREFIX: bucketS3KeyPrefix,
       FILE_TTL: bucketS3PresignTtlSeconds,
+      MCP_LOCAL_FILE_STORE_DIR: localFileStoreDir,
+      MCP_LOCAL_FILE_STORE_PUBLIC_URL: localFileStorePublicUrl,
     } = cleansedVars;
 
     let jwtUsername = '';
@@ -450,6 +454,13 @@ export class Config extends BaseConfig {
 
     this.auth = isAuthType(normalizedAuth) ? normalizedAuth : this.oauth.enabled ? 'oauth' : 'pat';
     this.transport = isTransport(transport) ? transport : this.oauth.enabled ? 'http' : 'stdio';
+    this.localFileStore = parseLocalFileStoreConfig({
+      dir: localFileStoreDir,
+      publicUrl: localFileStorePublicUrl,
+      presignTtlSeconds: this.bucketS3.presignTtlSeconds,
+      transport: this.transport,
+      s3Enabled: this.bucketS3.enabled,
+    });
 
     if (this.oauth.external) {
       validateOAuthExternal({
@@ -590,6 +601,65 @@ export class Config extends BaseConfig {
       uatPrivateKey || (uatPrivateKeyPath ? readFileSync(uatPrivateKeyPath, 'utf8') : '');
     this.uatKeyId = uatKeyId ?? '';
     this.jwtAdditionalPayload = jwtAdditionalPayload || '{}';
+  }
+}
+
+export type LocalFileStoreConfig = {
+  enabled: boolean;
+  dir: string;
+  publicUrl: string;
+  presignTtlSeconds: number;
+};
+
+function parseLocalFileStoreConfig({
+  dir,
+  publicUrl,
+  presignTtlSeconds,
+  transport,
+  s3Enabled,
+}: {
+  dir: string | undefined;
+  publicUrl: string | undefined;
+  presignTtlSeconds: number;
+  transport: TransportName;
+  s3Enabled: boolean;
+}): LocalFileStoreConfig {
+  const dirValue = dir?.trim() ?? '';
+  if (!dirValue) {
+    return { enabled: false, dir: '', publicUrl: '', presignTtlSeconds };
+  }
+  const publicUrlValue = (publicUrl?.trim() ?? '').replace(/\/+$/, '');
+  validateLocalFileStoreConfig({ dir: dirValue, publicUrl: publicUrlValue, transport, s3Enabled });
+  return { enabled: true, dir: dirValue, publicUrl: publicUrlValue, presignTtlSeconds };
+}
+
+function validateLocalFileStoreConfig({
+  dir,
+  publicUrl,
+  transport,
+  s3Enabled,
+}: {
+  dir: string;
+  publicUrl: string;
+  transport: TransportName;
+  s3Enabled: boolean;
+}): void {
+  if (s3Enabled) {
+    throw new Error('Set either MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR, not both');
+  }
+  if (transport !== 'http') {
+    throw new Error('MCP_LOCAL_FILE_STORE_DIR requires TRANSPORT to be "http"');
+  }
+  if (!isAbsolute(dir)) {
+    throw new Error('MCP_LOCAL_FILE_STORE_DIR must be an absolute path');
+  }
+  if (!publicUrl) {
+    throw new Error(
+      'MCP_LOCAL_FILE_STORE_PUBLIC_URL must be set when MCP_LOCAL_FILE_STORE_DIR is set',
+    );
+  }
+  if (!/^https?:\/\//.test(publicUrl)) {
+    throw new Error('MCP_LOCAL_FILE_STORE_PUBLIC_URL must start with "http://" or "https://"');
   }
 }
 
