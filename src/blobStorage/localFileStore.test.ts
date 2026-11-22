@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'fs';
+import { open } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -10,6 +11,19 @@ import {
   resolveStoredPath,
   sweepExpiredFiles,
 } from './localFileStore.js';
+
+const mocks = vi.hoisted(() => ({ lockedName: '' }));
+
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return {
+    ...actual,
+    rm: (path: string, options?: Parameters<typeof actual.rm>[1]) =>
+      mocks.lockedName && String(path).endsWith(mocks.lockedName)
+        ? Promise.reject(Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' }))
+        : actual.rm(path, options),
+  };
+});
 
 describe('localFileStore', () => {
   const signer = createFileLinkSigner(Buffer.alloc(32, 1));
@@ -50,6 +64,29 @@ describe('localFileStore', () => {
     await store.putAndLink({ key: 'a/t.zip', bytes: Buffer.from('b'), contentType: 'x/y' });
     expect(readFileSync(join(root, 'a', 't.zip'), 'utf8')).toBe('b');
     expect(readdirSync(join(root, 'a'))).toEqual(['t.zip']);
+  });
+
+  it('putAndLink with unchanged bytes succeeds while the file is being downloaded', async () => {
+    const key = 'data-app-templates/t.zip';
+    await store.putAndLink({ key, bytes: Buffer.from('zip'), contentType: 'application/zip' });
+    const reader = await open(join(root, 'data-app-templates', 't.zip'));
+    try {
+      await expect(
+        store.putAndLink({ key, bytes: Buffer.from('zip'), contentType: 'application/zip' }),
+      ).resolves.toMatch(/\/files\//);
+    } finally {
+      await reader.close();
+    }
+  });
+
+  it('putAndLink with unchanged bytes refreshes the age the sweeper sees', async () => {
+    const key = 'data-app-templates/t.zip';
+    const path = join(root, 'data-app-templates', 't.zip');
+    await store.putAndLink({ key, bytes: Buffer.from('zip'), contentType: 'application/zip' });
+    const twoDaysAgo = new Date(Date.now() - 2 * LOCAL_FILE_RETENTION_MS);
+    utimesSync(path, twoDaysAgo, twoDaysAgo);
+    await store.putAndLink({ key, bytes: Buffer.from('zip'), contentType: 'application/zip' });
+    await expect(sweepExpiredFiles(root, LOCAL_FILE_RETENTION_MS)).resolves.toBe(0);
   });
 
   it('createUploadLink signs a PUT with length and type and writes nothing', async () => {
@@ -112,6 +149,22 @@ describe('localFileStore', () => {
     expect(existsSync(join(root, 'old'))).toBe(false);
     expect(existsSync(join(root, 'new', 'f'))).toBe(true);
     expect(existsSync(root)).toBe(true);
+  });
+
+  it('sweepExpiredFiles keeps going past a file it cannot delete', async () => {
+    await store.putAndLink({ key: 'a/locked', bytes: Buffer.from('l'), contentType: 'x/y' });
+    await store.putAndLink({ key: 'b/old', bytes: Buffer.from('o'), contentType: 'x/y' });
+    const twoDaysAgo = new Date(Date.now() - 2 * LOCAL_FILE_RETENTION_MS);
+    utimesSync(join(root, 'a', 'locked'), twoDaysAgo, twoDaysAgo);
+    utimesSync(join(root, 'b', 'old'), twoDaysAgo, twoDaysAgo);
+    mocks.lockedName = 'locked';
+    try {
+      await expect(sweepExpiredFiles(root, LOCAL_FILE_RETENTION_MS)).resolves.toBe(1);
+    } finally {
+      mocks.lockedName = '';
+    }
+    expect(existsSync(join(root, 'a', 'locked'))).toBe(true);
+    expect(existsSync(join(root, 'b'))).toBe(false);
   });
 
   it('sweepExpiredFiles returns 0 for a missing root', async () => {

@@ -1008,7 +1008,7 @@ result fields as with S3, so clients need no change.
 **Example:**
 
 ```bash
-MCP_LOCAL_FILE_STORE_DIR=C:	ableau-mcp-files
+MCP_LOCAL_FILE_STORE_DIR=C:\tableau-mcp-files
 ```
 
 <hr />

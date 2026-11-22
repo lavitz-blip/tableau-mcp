@@ -14,6 +14,7 @@ import {
 } from '../blobStorage/fileLinkToken.js';
 import { LocalFileStoreConfig, resolveStoredPath } from '../blobStorage/localFileStore.js';
 import { log } from '../logging/logger.js';
+import { getExceptionMessage } from '../utils/getExceptionMessage.js';
 
 const MESSAGES = {
   badUploadLink: 'Upload link is invalid or expired. Request a new upload.',
@@ -22,7 +23,12 @@ const MESSAGES = {
   lengthMismatch: 'Upload body length did not match Content-Length.',
   badDownloadLink: 'Download link is invalid or expired.',
   notFound: 'File not found. It may have expired.',
+  storeFailed: 'The server could not store the upload. Try again later.',
+  readFailed: 'The server could not read the file. Try again later.',
 } as const;
+
+/** The client sent more bytes than it signed for. */
+class OverLengthError extends Error {}
 
 type UploadOutcome = 'stored' | 'exists' | 'length-mismatch';
 
@@ -35,8 +41,16 @@ export function registerFileRoutes(
   config: LocalFileStoreConfig,
   signer: FileLinkSigner = getFileLinkSigner(),
 ): void {
-  app.put('/files/:token', (req, res) => handleUpload(req, res, config.dir, signer));
-  app.get('/files/:token', (req, res) => handleDownload(req, res, config.dir, signer));
+  app.put('/files/:token', (req, res) =>
+    handleUpload(req, res, config.dir, signer).catch((error) =>
+      failRequest(res, error, MESSAGES.storeFailed),
+    ),
+  );
+  app.get('/files/:token', (req, res) =>
+    handleDownload(req, res, config.dir, signer).catch((error) =>
+      failRequest(res, error, MESSAGES.readFailed),
+    ),
+  );
 }
 
 async function handleUpload(
@@ -117,8 +131,12 @@ async function writeUploadOnce(
   try {
     const received = await streamToFile(req, partial, expectedBytes);
     return received === expectedBytes ? await linkIntoPlace(partial, path) : 'length-mismatch';
-  } catch {
-    return 'length-mismatch';
+  } catch (error) {
+    // Only the client's fault maps to 400; disk and link failures surface as a 500 with the cause.
+    if (error instanceof OverLengthError || !req.complete) {
+      return 'length-mismatch';
+    }
+    throw error;
   } finally {
     await rm(partial, { force: true });
   }
@@ -130,7 +148,7 @@ async function streamToFile(req: Request, path: string, maxBytes: number): Promi
     transform(chunk: Buffer, _encoding, callback) {
       received += chunk.length;
       callback(
-        received > maxBytes ? new Error('Upload body exceeds the signed length.') : null,
+        received > maxBytes ? new OverLengthError('Upload body exceeds the signed length.') : null,
         chunk,
       );
     },
@@ -181,9 +199,24 @@ async function sendStoredFile(res: Response, path: string, claims: FileLinkClaim
 
 function reject(res: Response, status: number, message: string, claims?: FileLinkClaims): void {
   logRequest(`${res.req.method} rejected (${status})`, claims, 'warning');
-  if (!res.headersSent && !res.writableEnded && !res.req.destroyed) {
+  sendText(res, status, message);
+}
+
+// pipeline() destroys `req` once the body is read, so a live socket is the test, not `req`.
+function sendText(res: Response, status: number, message: string): void {
+  if (!res.headersSent && !res.writableEnded && res.socket && !res.socket.destroyed) {
     res.status(status).type('text/plain').send(message);
   }
+}
+
+// A plain 500 instead of Express's default handler, which can answer with a stack trace.
+function failRequest(res: Response, error: unknown, message: string): void {
+  log({
+    message: `${res.req.method} /files failed: ${getExceptionMessage(error)}`,
+    level: 'error',
+    logger: 'file-routes',
+  });
+  sendText(res, 500, message);
 }
 
 // Logs the key's folder only, never the token: the token is the credential.

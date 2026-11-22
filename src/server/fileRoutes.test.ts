@@ -13,6 +13,21 @@ import { registerFileRoutes } from './fileRoutes.js';
 
 vi.mock('../logging/logger.js');
 
+const mocks = vi.hoisted(() => ({ linkFails: false }));
+
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return {
+    ...actual,
+    link: (existing: string, target: string) =>
+      mocks.linkFails
+        ? Promise.reject(
+            Object.assign(new Error('EPERM: operation not permitted, link'), { code: 'EPERM' }),
+          )
+        : actual.link(existing, target),
+  };
+});
+
 const OCTET = 'application/octet-stream';
 const KEY = 'w/s/u/id/workbook.twbx';
 
@@ -63,6 +78,24 @@ describe('registerFileRoutes', () => {
       .expect(200);
     expect(verify).toHaveBeenCalledTimes(1);
     verify.mockRestore();
+  });
+
+  it('answers 500 and logs the cause when the server cannot store the upload', async () => {
+    mocks.linkFails = true;
+    try {
+      const res = await request(app)
+        .put(`/files/${putToken(3)}`)
+        .set('Content-Type', OCTET)
+        .send(Buffer.from('abc'))
+        .expect(500);
+      expect(res.text).toBe('The server could not store the upload. Try again later.');
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('EPERM') }),
+      );
+      expect(listFiles(root)).toEqual([]);
+    } finally {
+      mocks.linkFails = false;
+    }
   });
 
   it('rejects a second PUT with the same link and keeps the first file', async () => {

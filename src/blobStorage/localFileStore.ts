@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto';
-import { mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, rename, rm, rmdir, stat, utimes, writeFile } from 'fs/promises';
 import { dirname, join, resolve, sep } from 'path';
 
 import { Config } from '../config.js';
 import { log } from '../logging/logger.js';
+import { getExceptionMessage } from '../utils/getExceptionMessage.js';
 import { FileLinkClaims, FileLinkSigner, getFileLinkSigner } from './fileLinkToken.js';
 import { FileStore } from './fileStore.js';
 
@@ -23,7 +24,7 @@ export function createLocalFileStore(
     keyPrefix: '',
     linkTtlSeconds: presignTtlSeconds,
     putAndLink: async ({ key, bytes, contentType }) => {
-      await writeFileAtomically(resolveStoredPath(dir, key), bytes);
+      await storeBytes(resolveStoredPath(dir, key), bytes);
       return link({ k: key, m: 'GET', t: contentType });
     },
     createUploadLink: async ({ key, contentType, contentLength }) => {
@@ -55,6 +56,19 @@ export function buildFileLink(publicUrl: string, token: string): string {
 
 function expiryEpochSeconds(ttlSeconds: number): number {
   return Math.floor(Date.now() / 1000) + ttlSeconds;
+}
+
+// Windows refuses to rename over a file someone is downloading (EPERM), so unchanged bytes (the
+// shared data-app template on every scaffold call) only get their age refreshed for the sweeper.
+// ponytail: changed bytes while a download is open still fail; retry the rename if that shows up.
+async function storeBytes(path: string, bytes: Buffer): Promise<void> {
+  const current = await readFile(path).catch(() => undefined);
+  if (current?.equals(bytes)) {
+    const now = new Date();
+    await utimes(path, now, now);
+    return;
+  }
+  await writeFileAtomically(path, bytes);
 }
 
 // Write then rename, so a reader never sees a half-written file.
@@ -118,15 +132,29 @@ async function sweepFolder(
 ): Promise<number> {
   let deleted = 0;
   for (const entry of await readdir(folder, { withFileTypes: true })) {
-    const path = join(folder, entry.name);
-    deleted += entry.isDirectory()
-      ? await sweepFolder(path, cutoffMs, true)
-      : await deleteFileIfOlder(path, cutoffMs);
+    deleted += await sweepEntry(join(folder, entry.name), entry.isDirectory(), cutoffMs);
   }
-  if (removeIfEmpty && (await readdir(folder)).length === 0) {
-    await rmdir(folder);
+  if (removeIfEmpty) {
+    // Fails harmlessly when not empty, e.g. an upload created a file in it meanwhile.
+    await rmdir(folder).catch(() => undefined);
   }
   return deleted;
+}
+
+// One locked file (antivirus, an open download) must not stop the rest of the sweep.
+async function sweepEntry(path: string, isFolder: boolean, cutoffMs: number): Promise<number> {
+  try {
+    return isFolder
+      ? await sweepFolder(path, cutoffMs, true)
+      : await deleteFileIfOlder(path, cutoffMs);
+  } catch (error) {
+    log({
+      message: `Local file store sweep skipped an entry: ${getExceptionMessage(error)}`,
+      level: 'warning',
+      logger: 'file-store',
+    });
+    return 0;
+  }
 }
 
 async function deleteFileIfOlder(path: string, cutoffMs: number): Promise<number> {
