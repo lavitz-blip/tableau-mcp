@@ -5,6 +5,7 @@ import https from 'https';
 import { AddressInfo } from 'net';
 import os from 'os';
 import path from 'path';
+import request from 'supertest';
 
 import { Config } from '../config.js';
 import { ArgsValidationError, McpSiteSettingsUnavailableError } from '../errors/mcpToolError.js';
@@ -41,6 +42,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     enablePassthroughAuth: false,
     disableSessionManagement: true,
     oauth: { enabled: false },
+    localFileStore: { enabled: false, dir: '', publicUrl: '', presignTtlSeconds: 60 },
     ...overrides,
   } as Config;
 }
@@ -455,3 +457,45 @@ describe.each([false, true])(
     });
   },
 );
+
+describe('startExpressServer local file store routes', () => {
+  it('mounts /files/:token when the local file store is enabled', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'express-files-'));
+    const { app, server } = await startExpressServer({
+      basePath: 'tableau-mcp',
+      config: makeConfig({
+        localFileStore: {
+          enabled: true,
+          dir,
+          publicUrl: 'https://mcp.example.com',
+          presignTtlSeconds: 60,
+        },
+      }),
+      logLevel: 'debug',
+      host: '127.0.0.1',
+    });
+    try {
+      const res = await request(app).put('/files/not-a-token').send('x');
+      expect(res.status).toBe(403);
+      expect(res.text).toBe('Upload link is invalid or expired. Request a new upload.');
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not mount /files/:token when the local file store is disabled', async () => {
+    const { app, server } = await startExpressServer({
+      basePath: 'tableau-mcp',
+      config: makeConfig(),
+      logLevel: 'debug',
+      host: '127.0.0.1',
+    });
+    try {
+      const res = await request(app).put('/files/not-a-token').send('x');
+      expect(res.status).toBe(404);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

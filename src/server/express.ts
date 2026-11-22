@@ -19,6 +19,7 @@ import fs, { existsSync } from 'fs';
 import http from 'http';
 import https from 'https';
 
+import { startLocalFileSweeper } from '../blobStorage/localFileStore.js';
 import { Config } from '../config.js';
 import { McpSiteSettingsUnavailableError } from '../errors/mcpToolError.js';
 import { getFeatureGate } from '../features/init.js';
@@ -29,6 +30,7 @@ import { ClientInfo, Server } from '../server.js';
 import { WebMcpServer } from '../server.web.js';
 import { createSession, getSession, Session } from '../sessions.js';
 import { OAUTH_AUTH_CHALLENGE_GUIDANCE } from '../utils/authErrorMessage.js';
+import { registerFileRoutes } from './fileRoutes.js';
 import { latencyMiddleware } from './latencyMiddleware.js';
 import { ClientCapabilitiesWithUiExtension } from './mcpUiCapability.js';
 import { handlePingRequest } from './middleware.js';
@@ -61,6 +63,12 @@ export async function startExpressServer({
 }): Promise<{ url: string; app: express.Application; server: http.Server }> {
   const app = express();
 
+  if (config.localFileStore.enabled) {
+    // ponytail: Node's default server.requestTimeout (300 s) bounds one upload, about 17 MB/s at
+    // the 5 GB cap. Raise it if large uploads time out.
+    registerFileRoutes(app, config.localFileStore);
+    startLocalFileSweeper(config.localFileStore);
+  }
   app.use(express.json());
   app.use(express.urlencoded());
   if (config.enablePassthroughAuth) {
