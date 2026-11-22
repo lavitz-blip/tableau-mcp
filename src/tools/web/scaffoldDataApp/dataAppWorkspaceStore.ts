@@ -5,12 +5,13 @@
 import { readFile } from 'fs/promises';
 import { Ok, Result } from 'ts-results-es';
 
+import { FileStore, getFileStore } from '../../../blobStorage/fileStore.js';
 import { Config } from '../../../config.js';
 import { DataAppTemplateUnavailableError, McpToolError } from '../../../errors/mcpToolError.js';
 import { TEMPLATE_ZIP_FILENAME } from '../../../scripts/buildTemplateZip.js';
 import { ProductVersion } from '../../../sdks/tableau/types/serverInfo.js';
 import { getExceptionMessage } from '../../../utils/getExceptionMessage.js';
-import { joinS3Prefix, uploadBufferToS3 } from '../s3Client.js';
+import { joinS3Prefix } from '../s3Client.js';
 import {
   buildPostUnzipPlan,
   buildRequestedOriginsGuide,
@@ -31,7 +32,8 @@ import {
  * modes differ only in transport:
  *  - disk: `filePath` points at the template zip already on the local filesystem — skip download,
  *    then unzip and apply `postUnzip`.
- *  - S3: `s3URL` is a presigned GET for the (un-substituted) template zip — download it first, then
+ *  - file store (S3 or local): `s3URL` is a short-lived signed GET link for the (un-substituted)
+ *    template zip — download it first, then
  *    unzip and apply `postUnzip`.
  * Both also return `requestedOrigins`: where the finalized manifest.json is and how to declare the
  * app's external origins in it.
@@ -78,12 +80,9 @@ export async function createDataAppWorkspace({
     ).toErr();
   }
 
-  if (config.bucketS3.enabled) {
-    return await createS3Workspace({
-      workspace,
-      config,
-      source,
-    });
+  const store = getFileStore(config);
+  if (store) {
+    return await createLinkedWorkspace({ workspace, store, source });
   }
 
   let zipPath: string;
@@ -97,16 +96,16 @@ export async function createDataAppWorkspace({
   return new Ok({ ...workspace, filePath: zipPath });
 }
 
-async function createS3Workspace({
+async function createLinkedWorkspace({
   workspace,
-  config,
+  store,
   source,
 }: {
   workspace: DataAppWorkspaceResult;
-  config: Config;
+  store: FileStore;
   source: TemplateSource;
 }): Promise<Result<DataAppWorkspaceResult, McpToolError>> {
-  // Upload the template zip to S3 fresh on every call, then presign a GET URL for exactly those
+  // Store the template zip fresh on every call, then sign a GET link for exactly those
   // bytes. The uploaded content is identical regardless of `datappName` (only `postUnzip` varies),
   // so a fixed key is intentional — concurrent overwrites are harmless. Nothing is published out of
   // band; the object is always what this code path just wrote.
@@ -118,14 +117,9 @@ async function createS3Workspace({
   let s3URL: string;
   try {
     const buffer = 'path' in source ? await readFile(source.path) : source.bytes;
-    const key = `${joinS3Prefix(config.bucketS3.keyPrefix, 'data-app-templates')}${TEMPLATE_ZIP_FILENAME}`;
-    s3URL = await uploadBufferToS3(buffer, {
-      key,
-      contentType: 'application/zip',
-      bucket: config.bucketS3.bucket,
-      region: config.bucketS3.region,
-      presignTtlSeconds: config.bucketS3.presignTtlSeconds,
-    });
+    const key = `${joinS3Prefix(store.keyPrefix, 'data-app-templates')}${TEMPLATE_ZIP_FILENAME}`;
+    // The field keeps its `s3URL` name for any backend: the plugin reads it.
+    s3URL = await store.putAndLink({ key, bytes: buffer, contentType: 'application/zip' });
   } catch (error) {
     return new DataAppTemplateUnavailableError(
       `Failed to prepare the data app template: ${getExceptionMessage(error)}.`,

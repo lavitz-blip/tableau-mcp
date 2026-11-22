@@ -237,6 +237,42 @@ describe('createDataAppWorkspace', () => {
     });
   });
 
+  describe('local file store output (MCP_LOCAL_FILE_STORE_DIR configured)', () => {
+    let storeDir: string;
+
+    beforeAll(async () => {
+      await buildTemplateZip();
+    });
+
+    beforeEach(async () => {
+      storeDir = await mkdtemp(join(tmpdir(), 'mcp-files-'));
+      vi.stubEnv('TRANSPORT', 'http');
+      vi.stubEnv('DANGEROUSLY_DISABLE_OAUTH', 'true');
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', storeDir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com');
+    });
+
+    afterEach(async () => {
+      await rm(storeDir, { recursive: true, force: true });
+    });
+
+    it('stores the template zip on the local disk and returns a /files/ link as s3URL', async () => {
+      const result = await createDataAppWorkspace({
+        datappName: 'Sales Demo',
+        allowedOrigins: [],
+        productVersion,
+        config: getConfig(),
+      });
+
+      invariant(result.isOk(), result.isErr() ? result.error.message : '');
+      expect(result.value.s3URL).toMatch(/^https:\/\/mcp\.example\.com\/files\//);
+      expect(result.value.filePath).toBeUndefined();
+      const stored = await readFile(join(storeDir, 'data-app-templates', TEMPLATE_ZIP_FILENAME));
+      expect(stored).toEqual(await readFile(join('src/templates', TEMPLATE_ZIP_FILENAME)));
+      expect(mocks.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('S3 output (MCP_S3_BUCKET configured)', () => {
     // S3 mode now uploads the same on-disk build artifact local mode serves, so the zip must exist.
     beforeAll(async () => {
