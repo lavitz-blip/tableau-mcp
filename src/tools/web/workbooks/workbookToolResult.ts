@@ -6,13 +6,14 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Ok, Result } from 'ts-results-es';
 
+import { getFileStore } from '../../../blobStorage/fileStore.js';
 import { getTenantLuids, TenantIdentitySource } from '../../../blobStorage/tenantKey.js';
 import { Config } from '../../../config.js';
 import { McpToolError } from '../../../errors/mcpToolError.js';
 import { getFeatureGate } from '../../../features/init.js';
 import { log } from '../../../logging/logger.js';
 import { getExceptionMessage } from '../../../utils/getExceptionMessage.js';
-import { buildTenantS3Key, uploadBufferToS3 } from '../s3Client.js';
+import { buildTenantS3Key } from '../s3Client.js';
 
 export type WorkbookToolResult =
   | { kind: 'url'; url: string; mimeType: string; filename: string }
@@ -37,10 +38,8 @@ export async function buildWorkbookToolResult({
   keyPrefixSegment: string;
   tenant: TenantIdentitySource;
 }): Promise<Result<WorkbookToolResult, McpToolError>> {
-  if (
-    !config.bucketS3.enabled ||
-    !(await getFeatureGate().isFeatureEnabled('workbook-file-mode'))
-  ) {
+  const store = getFileStore(config);
+  if (!store || !(await getFeatureGate().isFeatureEnabled('workbook-file-mode'))) {
     return new Ok(await persistWorkbookToTempPath({ content, mimeType, filename }));
   }
 
@@ -53,22 +52,16 @@ export async function buildWorkbookToolResult({
   try {
     const ext = mimeType === 'application/xml' ? 'twb' : 'twbx';
     const key = buildTenantS3Key(
-      config.bucketS3.keyPrefix,
+      store.keyPrefix,
       tenantLuids.value,
       keyPrefixSegment,
       `${resourceId}/${randomUUID()}.${ext}`,
     );
-    const url = await uploadBufferToS3(content, {
-      key,
-      contentType: mimeType,
-      bucket: config.bucketS3.bucket,
-      region: config.bucketS3.region,
-      presignTtlSeconds: config.bucketS3.presignTtlSeconds,
-    });
+    const url = await store.putAndLink({ key, bytes: content, contentType: mimeType });
     return new Ok({ kind: 'url', url, mimeType, filename });
   } catch (error) {
     log({
-      message: `${toolName}: S3 workbook upload failed, falling back to temp-file output: ${getExceptionMessage(
+      message: `${toolName}: file store workbook upload failed, falling back to temp-file output: ${getExceptionMessage(
         error,
       )}`,
       level: 'warning',
@@ -104,7 +97,7 @@ export function workbookToolResultToCallToolResult(result: WorkbookToolResult): 
         name: result.filename,
         mimeType: result.mimeType,
         description:
-          'Downloaded Tableau workbook content stored in S3. This is a short-lived presigned URL.',
+          'Downloaded Tableau workbook content in the file store. This is a short-lived signed URL.',
       },
     ],
   };

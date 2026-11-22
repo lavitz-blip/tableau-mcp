@@ -1,5 +1,7 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
-import { readFile, rm } from 'fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 import { WebMcpServer } from '../../../server.web.js';
 import { stubDefaultEnvVars } from '../../../testShared.js';
@@ -177,6 +179,45 @@ describe('downloadWorkbookTool', () => {
         ),
       }),
     );
+  });
+
+  it('stores the workbook in the local file store and returns a /files/ link when MCP_LOCAL_FILE_STORE_DIR is set', async () => {
+    const storeDir = await mkdtemp(join(tmpdir(), 'mcp-files-'));
+    try {
+      vi.stubEnv('TRANSPORT', 'http');
+      vi.stubEnv('DANGEROUSLY_DISABLE_OAUTH', 'true');
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_DIR', storeDir);
+      vi.stubEnv('MCP_LOCAL_FILE_STORE_PUBLIC_URL', 'https://mcp.example.com');
+      const workbookBytes = Buffer.from('<workbook/>', 'utf-8');
+      mocks.mockDownloadWorkbook.mockResolvedValue({
+        content: workbookBytes,
+        contentType: 'application/xml',
+        filename: 'Superstore.twb',
+      });
+
+      const result = await getToolResult({
+        workbookId: '96a43833-27db-40b6-aa80-751efc776b9a',
+        includeExtract: false,
+      });
+
+      expect(result.isError).toBe(false);
+      invariant(result.content[0].type === 'resource_link');
+      expect(result.content[0].uri).toMatch(/^https:\/\/mcp\.example\.com\/files\//);
+      expect(result.content[0].name).toBe('Superstore.twb');
+      expect(mocks.mockUploadBufferToS3).not.toHaveBeenCalled();
+      const folder = join(
+        storeDir,
+        'workbook-files',
+        MOCK_SITE_LUID,
+        MOCK_USER_LUID,
+        '96a43833-27db-40b6-aa80-751efc776b9a',
+      );
+      const [stored] = await readdir(folder);
+      expect(stored).toMatch(/\.twb$/);
+      expect(await readFile(join(folder, stored))).toEqual(workbookBytes);
+    } finally {
+      await rm(storeDir, { recursive: true, force: true });
+    }
   });
 
   it('fails closed without uploading or writing a temp file when the session has no site LUID', async () => {
