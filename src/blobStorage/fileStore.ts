@@ -1,4 +1,5 @@
 import { Config } from '../config.js';
+import { createLocalFileStore } from './localFileStore.js';
 import { createS3FileStore } from './s3FileStore.js';
 
 /** Where staged files live: an S3 bucket or this MCP's own disk. Links carry their own authorization. */
@@ -20,6 +21,9 @@ export function getFileStore(
 ): FileStore | undefined {
   if (config.bucketS3.enabled) {
     return createS3FileStore(config.bucketS3);
+  }
+  if (config.localFileStore.enabled) {
+    return createLocalFileStore(config.localFileStore);
   }
   return undefined;
 }

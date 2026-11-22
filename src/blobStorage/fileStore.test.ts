@@ -21,4 +21,17 @@ describe('getFileStore', () => {
     });
     expect(store?.keyPrefix).toBe('mcp/');
   });
+
+  it('returns the local store when MCP_LOCAL_FILE_STORE_DIR is set', () => {
+    const store = getFileStore({
+      bucketS3,
+      localFileStore: {
+        enabled: true,
+        dir: '/tmp/mcp-files',
+        publicUrl: 'https://mcp.example.com',
+        presignTtlSeconds: 60,
+      },
+    });
+    expect(store?.keyPrefix).toBe('');
+  });
 });
