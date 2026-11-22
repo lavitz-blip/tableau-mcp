@@ -44,7 +44,9 @@ export function resolveStoredPath(root: string, key: string): string {
   );
   const rootPath = resolve(root);
   const path = resolve(rootPath, ...segments);
-  if (unsafe || !path.startsWith(rootPath + sep)) {
+  // A drive root (C:\) already ends with the separator.
+  const base = rootPath.endsWith(sep) ? rootPath : rootPath + sep;
+  if (unsafe || !path.startsWith(base)) {
     throw new Error('File key is not a safe relative path.');
   }
   return path;

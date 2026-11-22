@@ -33,8 +33,8 @@ Whether to include workbook extracts in the returned workbook package.
 
 The tool returns one of two result shapes:
 
-- **S3 file mode enabled:** returns a `resource_link` with a short-lived presigned URL to the workbook file.
-- **S3 file mode disabled or upload failure:** writes the workbook to a local temporary directory and returns a JSON object containing a local file path.
+- **File mode enabled (S3 or local file store):** returns a `resource_link` with a short-lived signed URL to the workbook file.
+- **File mode disabled or upload failure:** writes the workbook to a local temporary directory and returns a JSON object containing a local file path.
 
 The tool preserves Tableau response metadata when present:
 
@@ -43,7 +43,7 @@ The tool preserves Tableau response metadata when present:
   - `application/octet-stream` for `.twbx`
 - `name` (for `resource_link`) and `filename` (for temp-file JSON) are taken from Tableau's `Content-Disposition` filename when available, otherwise a fallback name is generated.
 
-## Example result (S3 mode)
+## Example result (file mode)
 
 ```json
 {
@@ -51,7 +51,7 @@ The tool preserves Tableau response metadata when present:
   "uri": "https://example-bucket.s3.amazonaws.com/...presigned...",
   "name": "Superstore.twbx",
   "mimeType": "application/octet-stream",
-  "description": "Downloaded Tableau workbook content stored in S3. This is a short-lived presigned URL."
+  "description": "Downloaded Tableau workbook content in the file store. This is a short-lived signed URL."
 }
 ```
 

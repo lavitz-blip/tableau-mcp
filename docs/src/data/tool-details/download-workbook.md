@@ -20,7 +20,7 @@ The tool preserves Tableau response metadata when present:
   "uri": "https://example-bucket.s3.amazonaws.com/...presigned...",
   "name": "Superstore.twbx",
   "mimeType": "application/octet-stream",
-  "description": "Downloaded Tableau workbook content stored in S3. This is a short-lived presigned URL."
+  "description": "Downloaded Tableau workbook content in the file store. This is a short-lived signed URL."
 }
 ```
 

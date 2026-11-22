@@ -29,7 +29,7 @@ Exact file size in bytes; the upload must send exactly this many bytes (_availab
 {/* tool-details */}
 ## Response behavior
 
-The tool returns a presigned S3 `PUT` URL and an opaque `workbookUploadId`. Upload the raw workbook
+The tool returns a short-lived signed `PUT` URL (S3 or the local file store) and an opaque `workbookUploadId`. Upload the raw workbook
 bytes to `uploadUrl` with the given `requiredHeaders` before `expiresAt`, then pass
 `workbookUploadId` to [Publish Workbook](publish-workbook.md). The upload is not visible to Tableau
 until `publish-workbook` is called — this tool only stages the bytes.

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'fs';
 import { open } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, parse } from 'path';
 
 import { createFileLinkSigner } from './fileLinkToken.js';
 import { FileStore } from './fileStore.js';
@@ -134,6 +134,11 @@ describe('localFileStore', () => {
       expect(() => resolveStoredPath(root, key)).toThrow('File key is not a safe relative path.');
     },
   );
+
+  it('resolveStoredPath accepts a drive or filesystem root as the store folder', () => {
+    const driveRoot = parse(root).root;
+    expect(resolveStoredPath(driveRoot, 'a/b.twbx')).toBe(join(driveRoot, 'a', 'b.twbx'));
+  });
 
   it('resolveStoredPath maps a key under the root', () => {
     expect(resolveStoredPath(root, 'a/b.twbx')).toBe(join(root, 'a', 'b.twbx'));

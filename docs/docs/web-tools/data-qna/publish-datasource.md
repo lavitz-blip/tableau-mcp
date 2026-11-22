@@ -35,12 +35,12 @@ Staged data source upload id returned by request-datasource-upload. Use this for
 :::note
 Provide either datasourceFilePath or datasourceUploadId, not both. Either datasourceFilePath or datasourceUploadId must be provided. For local stdio MCP servers, pass datasourceFilePath. For hosted clients, call [request-datasource-upload](request-datasource-upload.md) first and pass datasourceUploadId.
 
-datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with [request-datasource-upload](request-datasource-upload.md) and pass datasourceUploadId; that requires the server to set [`MCP_S3_BUCKET`](../../configuration/mcp-config/env-vars.md#mcp_s3_bucket). datasourceFilePath is only supported when staged S3 uploads are not configured. Call [request-datasource-upload](request-datasource-upload.md) first and pass datasourceUploadId.
+datasourceFilePath is only supported when the MCP server runs over stdio. On an HTTP server, stage the file with [request-datasource-upload](request-datasource-upload.md) and pass datasourceUploadId; that requires the server to set [`MCP_S3_BUCKET`](../../configuration/mcp-config/env-vars.md#mcp_s3_bucket) or [`MCP_LOCAL_FILE_STORE_DIR`](../../configuration/mcp-config/env-vars.md#mcp_local_file_store_dir). datasourceFilePath is only supported when no file store (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) is configured. Call [request-datasource-upload](request-datasource-upload.md) first and pass datasourceUploadId.
 :::
 
 ### `datasourceFilePath`
 
-Path to a local TDS or TDSX data source file on the MCP server filesystem. Only supported when the MCP server runs over stdio and staged S3 uploads are not configured. On HTTP servers, use datasourceUploadId.
+Path to a local TDS or TDSX data source file on the MCP server filesystem. Only supported when the MCP server runs over stdio and no file store (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) is configured. On HTTP servers, use datasourceUploadId.
 
 :::note
 datasourceFilePath must point to a .tds or .tdsx file. datasourceFilePath must not point to an empty data source file.

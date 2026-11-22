@@ -38,7 +38,7 @@ const paramsSchema = {
     .min(1)
     .optional()
     .describe(
-      'Path to a local TDS or TDSX data source file on the MCP server filesystem. Only supported when the MCP server runs over stdio and staged S3 uploads are not configured. On HTTP servers, use datasourceUploadId.',
+      'Path to a local TDS or TDSX data source file on the MCP server filesystem. Only supported when the MCP server runs over stdio and no file store (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) is configured. On HTTP servers, use datasourceUploadId.',
     ),
   name: z.string().min(1).describe('The name to give the published data source.'),
   projectId: luidSchema.describe(

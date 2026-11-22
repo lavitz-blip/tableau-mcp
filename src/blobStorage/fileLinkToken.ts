@@ -21,11 +21,12 @@ const claimsSchema = z
   .strict();
 
 export function createFileLinkSigner(secret: Buffer): FileLinkSigner {
-  const mac = (payload: string): Buffer => createHmac('sha256', secret).update(payload).digest();
+  const mac = (payload: string): string =>
+    createHmac('sha256', secret).update(payload).digest('base64url');
   return {
     sign: (claims) => {
       const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-      return `${payload}.${mac(payload).toString('base64url')}`;
+      return `${payload}.${mac(payload)}`;
     },
     verify: (token, method, nowMs = Date.now()) => {
       const claims = parseToken(token, mac);
@@ -34,14 +35,15 @@ export function createFileLinkSigner(secret: Buffer): FileLinkSigner {
   };
 }
 
-function parseToken(token: string, mac: (payload: string) => Buffer): unknown {
+function parseToken(token: string, mac: (payload: string) => string): unknown {
   const parts = token.split('.');
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     return undefined;
   }
   const [payload, signature] = parts;
-  const expected = mac(payload);
-  const actual = Buffer.from(signature, 'base64url');
+  // Compare the encoded text: decoding ignores the last character's spare bits, so 4 spellings would pass.
+  const expected = Buffer.from(mac(payload));
+  const actual = Buffer.from(signature);
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
     return undefined;
   }

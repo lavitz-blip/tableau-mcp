@@ -50,7 +50,7 @@ const paramsSchema = {
     .min(1)
     .optional()
     .describe(
-      'Path to a local TWB or TWBX workbook file on the MCP server filesystem. Only supported when staged S3 uploads are not configured.',
+      'Path to a local TWB or TWBX workbook file on the MCP server filesystem. Only supported when no file store (MCP_S3_BUCKET or MCP_LOCAL_FILE_STORE_DIR) is configured.',
     ),
   name: z.string().min(1).describe('The name to give the published workbook.'),
   projectId: z
